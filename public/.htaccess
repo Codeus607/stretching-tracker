@@ -1,0 +1,24 @@
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+<Files "config.php">
+  Require all denied
+</Files>
+
+AddType video/mp4 .mp4
+
+<IfModule LiteSpeed>
+  CacheDisable public /
+</IfModule>
+
+<FilesMatch "\.(html|js|css|json|webmanifest)$">
+  Header set Cache-Control "no-cache"
+</FilesMatch>
+# video names change whenever the video does, so they can be cached for long
+<FilesMatch "\.(mp4|jpg)$">
+  Header set Cache-Control "public, max-age=2592000, immutable"
+</FilesMatch>
+<Files "sw.js">
+  Header set Cache-Control "no-cache, no-store"
+</Files>

@@ -1,0 +1,4 @@
+public/config.php
+*.sqlite
+public/videos/
+public/stretches.json

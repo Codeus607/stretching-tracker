@@ -1,0 +1,7 @@
+[Unit]
+Description=Pull stretching tracker backups into the notes folder
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/Documents/StretchingTracker-Project/sync/stretching-sync.sh

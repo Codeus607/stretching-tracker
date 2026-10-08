@@ -1,0 +1,235 @@
+<?php
+// JSON API for the stretching timer. Data lives in DATA_DIR (outside the web root):
+//   stretching.sqlite   sessions + login tokens
+//   Stretching.md       human-readable backup, regenerated after every change
+// The password is shared with the fitness app: AUTH_FILE points at its auth.json.
+declare(strict_types=1);
+
+require __DIR__ . '/config.php'; // defines DATA_DIR, AUTH_FILE, TIMEZONE
+date_default_timezone_set(defined('TIMEZONE') ? TIMEZONE : 'UTC');
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+header('X-Content-Type-Options: nosniff');
+
+const COOKIE = 'str_token';
+const SECS_PER_STRETCH = 60;
+
+function out(array $data, int $code = 200): never
+{
+    http_response_code($code);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+function fail(string $msg, int $code = 400): never
+{
+    out(['error' => $msg], $code);
+}
+
+function db(): PDO
+{
+    static $pdo = null;
+    if ($pdo) return $pdo;
+    $pdo = new PDO('sqlite:' . DATA_DIR . '/stretching.sqlite');
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    // stretches: JSON list of stretch names in the order they were planned
+    $pdo->exec(<<<SQL
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY,
+            stretches TEXT NOT NULL,
+            planned INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            seconds INTEGER NOT NULL DEFAULT 0,
+            completed INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS tokens (
+            hash TEXT PRIMARY KEY,
+            created_at INTEGER NOT NULL,
+            last_used INTEGER NOT NULL
+        );
+    SQL);
+    return $pdo;
+}
+
+// ---------- auth (password shared with the fitness app) ----------
+
+function auth_data(): array
+{
+    if (!is_file(AUTH_FILE)) fail('No password set on the server yet', 503);
+    return json_decode((string)file_get_contents(AUTH_FILE), true) ?: [];
+}
+
+function authed(): bool
+{
+    $t = $_COOKIE[COOKIE] ?? '';
+    if (!is_string($t) || strlen($t) !== 64) return false;
+    // logins older than the last password change are void
+    $st = db()->prepare('UPDATE tokens SET last_used = ? WHERE hash = ? AND created_at >= ?');
+    $st->execute([time(), hash('sha256', $t), (int)(auth_data()['changed_at'] ?? 0)]);
+    return $st->rowCount() > 0;
+}
+
+function set_cookie(string $value, int $expires): void
+{
+    setcookie(COOKIE, $value, [
+        'expires' => $expires, 'path' => '/', 'secure' => true,
+        'httponly' => true, 'samesite' => 'Strict',
+    ]);
+}
+
+function login(string $pw): void
+{
+    auth_data();
+    $fh = fopen(AUTH_FILE, 'c+');
+    flock($fh, LOCK_EX);
+    $auth = json_decode(stream_get_contents($fh), true) ?: [];
+    $now = time();
+    $fails = array_values(array_filter($auth['fails'] ?? [], fn($t) => $t > $now - 900));
+    $ok = count($fails) < 5 && password_verify($pw, $auth['hash'] ?? '');
+    if (!$ok && count($fails) < 5) $fails[] = $now;
+    $auth['fails'] = $ok ? [] : $fails;
+    ftruncate($fh, 0);
+    rewind($fh);
+    fwrite($fh, json_encode($auth));
+    fclose($fh);
+    if (count($fails) >= 5 && !$ok) fail('Too many attempts, try again in 15 minutes', 429);
+    if (!$ok) {
+        usleep(400000);
+        fail('Wrong password', 401);
+    }
+    $token = bin2hex(random_bytes(32));
+    db()->prepare('INSERT INTO tokens (hash, created_at, last_used) VALUES (?, ?, ?)')
+        ->execute([hash('sha256', $token), $now, $now]);
+    set_cookie($token, $now + 365 * 86400);
+}
+
+// ---------- data ----------
+
+function decode(array $s): array
+{
+    $s['stretches'] = json_decode($s['stretches'], true) ?: [];
+    return $s;
+}
+
+function sessions(): array
+{
+    return array_map('decode', db()->query('SELECT * FROM sessions ORDER BY started_at')->fetchAll());
+}
+
+function session(int $id): array
+{
+    $st = db()->prepare('SELECT * FROM sessions WHERE id = ?');
+    $st->execute([$id]);
+    return decode($st->fetch() ?: fail('Session not found', 404));
+}
+
+function fmt_min(int $seconds): string
+{
+    $m = intdiv($seconds + 30, 60);
+    return $m >= 60 ? intdiv($m, 60) . 'h' . str_pad((string)($m % 60), 2, '0', STR_PAD_LEFT) : "$m min";
+}
+
+// ---------- Stretching.md backup ----------
+
+function write_md(): void
+{
+    // per month -> per day: [seconds, sessions, stretch names]
+    $months = [];
+    foreach (sessions() as $s) {
+        if ($s['seconds'] <= 0) continue;
+        $m = substr($s['date'], 0, 7);
+        $d = &$months[$m][$s['date']];
+        $d ??= [0, 0, []];
+        $d[0] += $s['seconds'];
+        $d[1]++;
+        $d[2] = array_merge($d[2], $s['stretches']);
+        unset($d);
+    }
+    krsort($months);
+
+    $md = "# Stretching\n\n";
+    $md .= "> Backup generated by stretching.simonsmind.com on " . date('Y-m-d H:i') . ". Do not edit: it is overwritten on every save.\n\n";
+    $md .= "## Per month\n\n| Month | Days | Sessions | Total time |\n|---|---|---|---|\n";
+    foreach ($months as $m => $days) {
+        $md .= "| $m | " . count($days) . ' | ' . array_sum(array_column($days, 1)) . ' | '
+            . fmt_min(array_sum(array_column($days, 0))) . " |\n";
+    }
+    $md .= "\n## Days\n";
+    foreach ($months as $m => $days) {
+        krsort($days);
+        $md .= "\n### " . date('F Y', strtotime("$m-15")) . ' · ' . fmt_min(array_sum(array_column($days, 0)))
+            . "\n\n| Date | Time | Stretches |\n|---|---|---|\n";
+        foreach ($days as $date => [$secs, , $names]) {
+            $md .= "| $date | " . fmt_min($secs) . ' | ' . str_replace('|', '/', implode(', ', array_unique($names))) . " |\n";
+        }
+    }
+    $tmp = DATA_DIR . '/Stretching.md.tmp';
+    file_put_contents($tmp, $md);
+    rename($tmp, DATA_DIR . '/Stretching.md');
+}
+
+// ---------- routing ----------
+
+$action = $_GET['a'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'];
+$in = [];
+if ($method === 'POST') {
+    // custom header + SameSite=Strict cookie = no cross-site requests
+    if (($_SERVER['HTTP_X_STR'] ?? '') !== '1') fail('Bad request', 400);
+    $in = json_decode(file_get_contents('php://input') ?: '[]', true);
+    if (!is_array($in)) fail('Bad JSON');
+}
+
+if ($action === 'login' && $method === 'POST') {
+    login((string)($in['password'] ?? ''));
+    out(['ok' => true]);
+}
+if (!authed()) fail('Not logged in', 401);
+
+$changed = false;
+$result = match ("$method $action") {
+    'GET data' => ['sessions' => sessions()],
+
+    'POST logout' => (function () {
+        db()->prepare('DELETE FROM tokens WHERE hash = ?')->execute([hash('sha256', $_COOKIE[COOKIE])]);
+        set_cookie('', 1);
+        return ['ok' => true];
+    })(),
+
+    'POST session_start' => (function () use ($in) {
+        $names = $in['stretches'] ?? null;
+        if (!is_array($names) || !$names || count($names) > 100) fail('Pick at least one stretch');
+        foreach ($names as $n) {
+            if (!is_string($n) || $n === '' || mb_strlen($n) > 80) fail('Invalid stretch name');
+        }
+        db()->prepare('INSERT INTO sessions (stretches, planned, date, started_at) VALUES (?, ?, ?, ?)')
+            ->execute([json_encode(array_values($names), JSON_UNESCAPED_UNICODE), count($names), date('Y-m-d'), time()]);
+        return ['session' => session((int)db()->lastInsertId())];
+    })(),
+
+    // progress only ever grows, so a late or repeated update can't lose time
+    'POST session_update' => (function () use ($in, &$changed) {
+        $s = session((int)($in['id'] ?? 0));
+        $secs = max((int)$s['seconds'], min((int)($in['seconds'] ?? 0), $s['planned'] * SECS_PER_STRETCH));
+        $done = (int)$s['completed'] || !empty($in['completed']) ? 1 : 0;
+        if ($secs !== (int)$s['seconds'] || $done !== (int)$s['completed']) {
+            db()->prepare('UPDATE sessions SET seconds = ?, completed = ? WHERE id = ?')->execute([$secs, $done, $s['id']]);
+            $changed = true;
+        }
+        return ['session' => session($s['id'])];
+    })(),
+
+    'POST session_delete' => (function () use ($in, &$changed) {
+        db()->prepare('DELETE FROM sessions WHERE id = ?')->execute([(int)($in['id'] ?? 0)]);
+        $changed = true;
+        return ['ok' => true];
+    })(),
+
+    default => fail('Unknown action', 404),
+};
+
+if ($changed) write_md();
+out($result);
