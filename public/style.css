@@ -110,6 +110,20 @@ h3 { font-size: 0.95rem; margin: 0; }
 }
 .stretch.on { border-color: var(--mode); box-shadow: 0 0 18px -8px var(--mode-glow); }
 .stretch.on .num { border-color: var(--mode); background: var(--mode); color: var(--bg); }
+.quick { display: flex; gap: 10px; }
+.dur {
+  flex: 1;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 0;
+  font-family: var(--mono);
+  font-size: 1.3rem;
+  font-weight: 600;
+  transition: border-color 0.15s, color 0.15s;
+}
+.dur small { display: block; font-size: 0.7rem; font-weight: 400; color: var(--muted); }
+.dur:hover, .dur:active { border-color: var(--mode); color: var(--mode); }
 .go-bar {
   position: sticky;
   bottom: calc(env(safe-area-inset-bottom) + 10px);

@@ -285,6 +285,10 @@ function viewList() {
   const n = pickedStretches().length;
   return `
     <p class="meta">this month · <b class="hl">${fmtTime(t.secs)}</b> · ${t.days} day${t.days === 1 ? '' : 's'}</p>
+    <h2>random session</h2>
+    <div class="quick">
+      ${[10, 15].map(m => `<button class="dur" data-act="random" data-min="${m}">${m}<small>min</small></button>`).join('')}
+    </div>
     <div class="list-head">
       <h2>stretches</h2>
       <span class="meta-links">
@@ -422,6 +426,18 @@ const actions = {
     window.scrollTo(0, y);
   },
   all: () => { S.picked = S.stretches.map(s => s.id); save('str-picked', S.picked); render(); },
+  // random stretches for a 10 or 15 min session (one minute each, no repeats), in random order
+  random: el => {
+    const ids = S.stretches.map(s => s.id);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    S.picked = ids.slice(0, +el.dataset.min);
+    save('str-picked', S.picked);
+    render();
+    if (S.picked.length < +el.dataset.min) toast(`Only ${S.picked.length} stretches available`);
+  },
   clear: () => { S.picked = []; save('str-picked', S.picked); render(); },
   start: el => { el.disabled = true; run(start).finally(() => { el.disabled = false; }); },
   again: el => run(start),
