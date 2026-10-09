@@ -7,6 +7,7 @@ Live instance: https://stretching.simonsmind.com (private, password protected; t
 ## How it works
 
 - **The list is the video folder.** Every video in `~/Videos/Stretching-App` is a stretch, named after its file: `Active-Frog.mov` becomes "Active Frog". Add a video, run `./deploy.sh`, and it shows up.
+- **Random 10 / 15 min:** picks that many different stretches in random order and ticks them in the list; change them if you like, then press start.
 - Tap stretches to pick them; the number shows the order they'll be done in. The selection is remembered on the phone.
 - Each stretch gets **5 s to get ready** (the video already shows it), then **a chime and 1 minute** with the video looping. A double chime ends the session. Pause, skip and end are always available. The screen stays on during a session (Wake Lock).
 - **What's logged:** the seconds actually spent stretching (get-ready time and pauses don't count). Ending early logs the time done so far. The page reports progress every 15 s and on pause, and the server only ever increases the logged time.
