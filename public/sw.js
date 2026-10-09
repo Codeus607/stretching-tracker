@@ -1,6 +1,6 @@
 // Network-first service worker for the app shell. Videos are never touched: they
 // stream with range requests straight from the server.
-const CACHE = 'stretching-1791567229';
+const CACHE = 'stretching-1791568303';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'stretches.json', 'stretch-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', e => {

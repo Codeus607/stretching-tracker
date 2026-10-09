@@ -93,12 +93,14 @@ function audioCtx() {
   return S.ctx;
 }
 
-function chime(times = 1) {
+// `small` is the short, higher ding that marks the end of a stretch
+function chime(times = 1, small = false) {
   const ctx = S.ctx;
   if (!ctx) return;
+  const partials = small ? [[1760, 0.14, 0.7], [2640, 0.05, 0.4]] : [[880, 0.22, 1.6], [1320, 0.09, 1.1], [2210, 0.04, 0.6]];
   for (let i = 0; i < times; i++) {
     const t0 = ctx.currentTime + 0.05 + i * 0.55;
-    for (const [f, g, d] of [[880, 0.22, 1.6], [1320, 0.09, 1.1], [2210, 0.04, 0.6]]) {
+    for (const [f, g, d] of partials) {
       const o = ctx.createOscillator(), v = ctx.createGain();
       o.frequency.value = f;
       v.gain.setValueAtTime(0.0001, t0);
@@ -160,6 +162,7 @@ function advance(over, fresh) {
     if (r.idx + 1 >= r.list.length) { r.phase = 'end'; finish(false); return false; }
     r.idx++;
     r.phase = 'ready';
+    if (fresh) chime(1, true);
   }
   r.acc = over;
   r.since = r.since ? Date.now() : null;
@@ -307,7 +310,7 @@ function viewList() {
     <div class="go-bar">
       <button class="btn block go" data-act="start" ${n ? '' : 'disabled'}>${n ? `START · ${n} stretch${n === 1 ? '' : 'es'} · ${n} min` : 'pick your stretches'}</button>
     </div>
-    <p class="meta center">1 min each · 5 s to get ready · a chime starts each stretch</p>`;
+    <p class="meta center">1 min each · 5 s to get ready · a chime starts each stretch, a short ding ends it</p>`;
 }
 
 function viewPlayer() {
