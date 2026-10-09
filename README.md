@@ -28,7 +28,6 @@ The videos and the generated list aren't in git. Run `./tools/build-videos.sh` (
 | `public/stretches.json` | generated stretch list |
 | `public/videos/` | generated video loops and thumbnails |
 | `tools/build-videos.sh` | encodes the videos and writes the list |
-| `tools/icon.svg` | app icon source |
 | `sync/` | optional: pulls `Stretching.md` + database snapshots to your laptop |
 | `deploy.sh` | builds the videos, then rsyncs `public/` to the server |
 
